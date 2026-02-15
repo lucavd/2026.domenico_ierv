@@ -36,3 +36,5 @@ vignettes/*.pdf
 *.knit.md
 
 .DS_Store
+.env
+simulation_log.txt
