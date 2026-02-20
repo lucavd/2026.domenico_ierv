@@ -38,3 +38,5 @@ vignettes/*.pdf
 .DS_Store
 .env
 simulation_log.txt
+basket_log.txt
+umbrella_log.txt
