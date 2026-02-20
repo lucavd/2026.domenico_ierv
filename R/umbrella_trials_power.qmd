@@ -1,0 +1,166 @@
+---
+title: "Umbrella Trials Power simulation"
+author: "Angelo Capasso"
+format: html
+editor: visual
+---
+
+```{r setup}
+source("umbrella_functions.R")
+options(mc.cores = parallel::detectCores())
+```
+
+
+```{r}
+scenarios_effect08_umbrella <- list(
+  list(name = "P1: high heterogeneity, effect size = 0.8",
+       n_arms = 5,
+       n_control = c(17,15,18,12,23),
+       n_treat   = c(17,15,18,12,23),
+       mu_treat  = rep(0.8, 5),
+       sd        = 1,
+       scenario_code = "P1"),
+
+  list(name = "P2: low heterogeneity, effect size = 0.8",
+       n_arms = 5,
+       n_control = c(17,15,18,12,23),
+       n_treat   = c(17,15,18,12,23),
+       mu_treat  = rep(0.8, 5),
+       sd        = 1,
+       scenario_code = "P2"),
+
+  list(name = "P3: moderate heterogeneity, effect size = 0.8",
+       n_arms = 5,
+       n_control = c(17,15,18,12,23),
+       n_treat   = c(17,15,18,12,23),
+       mu_treat  = rep(0.8, 5),
+       sd        = 1,
+       scenario_code = "P3")
+)
+
+
+scenarios_effect05_umbrella <- list(
+  list(name = "P1: high heterogeneity, effect size = 0.5",
+       n_arms = 5,
+       n_control = c(17,15,18,12,23),
+       n_treat   = c(17,15,18,12,23),
+       mu_treat  = rep(0.5, 5),
+       sd        = 1,
+       scenario_code = "P1"),
+
+  list(name = "P2: low heterogeneity, effect size = 0.5",
+       n_arms = 5,
+       n_control = c(17,15,18,12,23),
+       n_treat   = c(17,15,18,12,23),
+       mu_treat  = rep(0.5, 5),
+       sd        = 1,
+       scenario_code = "P2"),
+
+  list(name = "P3: moderate heterogeneity, effect size = 0.5",
+       n_arms = 5,
+       n_control = c(17,15,18,12,23),
+       n_treat   = c(17,15,18,12,23),
+       mu_treat  = rep(0.5, 5),
+       sd        = 1,
+       scenario_code = "P3")
+)
+
+
+scenarios_effect02_umbrella <- list(
+  list(name = "P1: high heterogeneity, effect size = 0.2",
+       n_arms = 5,
+       n_control = c(17,15,18,12,23),
+       n_treat   = c(17,15,18,12,23),
+       mu_treat  = rep(0.2, 5),
+       sd        = 1,
+       scenario_code = "P1"),
+
+  list(name = "P2: low heterogeneity, effect size = 0.2",
+       n_arms = 5,
+       n_control = c(17,15,18,12,23),
+       n_treat   = c(17,15,18,12,23),
+       mu_treat  = rep(0.2, 5),
+       sd        = 1,
+       scenario_code = "P2"),
+
+  list(name = "P3: moderate heterogeneity, effect size = 0.2",
+       n_arms = 5,
+       n_control = c(17,15,18,12,23),
+       n_treat   = c(17,15,18,12,23),
+       mu_treat  = rep(0.2, 5),
+       sd        = 1,
+       scenario_code = "P3")
+)
+```
+
+
+```{r}
+set.seed(2025)
+n_sim_real <- 500
+
+results_08_umbrella <- run_all(scenarios_effect08_umbrella)
+results_05_umbrella <- run_all(scenarios_effect05_umbrella)
+results_02_umbrella <- run_all(scenarios_effect02_umbrella)
+```
+
+
+```{r}
+summary_table_08_umbrella <- build_summary(results_08_umbrella)
+summary_table_05_umbrella <- build_summary(results_05_umbrella)
+summary_table_02_umbrella <- build_summary(results_02_umbrella)
+```
+
+
+```{r}
+p_arm_08 <- plot_power_by_arm(summary_table_08_umbrella, "Effect size = 0.8")
+p_arm_05 <- plot_power_by_arm(summary_table_05_umbrella, "Effect size = 0.5")
+p_arm_02 <- plot_power_by_arm(summary_table_02_umbrella, "Effect size = 0.2")
+
+(p_arm_08 / p_arm_05 / p_arm_02) +
+  plot_annotation(
+    title    = "Umbrella Trial – Power by Arm",
+    subtitle = sprintf("n_sim = %d", n_sim_real)
+  )
+```
+
+
+```{r}
+effect_1 <- rep(0.8, 5)
+effect_2 <- rep(0.5, 5)
+effect_3 <- rep(0.2, 5)
+
+power_all_umbrella <- bind_rows(
+  find_power_curve_umbrella(mu_treat = effect_1, scenario_code = "P1",
+                            scenario_label = "P1 – High heterogeneity"),
+  find_power_curve_umbrella(mu_treat = effect_2, scenario_code = "P1",
+                            scenario_label = "P1 – High heterogeneity"),
+  find_power_curve_umbrella(mu_treat = effect_3, scenario_code = "P1",
+                            scenario_label = "P1 – High heterogeneity"),
+
+  find_power_curve_umbrella(mu_treat = effect_1, scenario_code = "P2",
+                            scenario_label = "P2 – Low heterogeneity"),
+  find_power_curve_umbrella(mu_treat = effect_2, scenario_code = "P2",
+                            scenario_label = "P2 – Low heterogeneity"),
+  find_power_curve_umbrella(mu_treat = effect_3, scenario_code = "P2",
+                            scenario_label = "P2 – Low heterogeneity"),
+
+  find_power_curve_umbrella(mu_treat = effect_1, scenario_code = "P3",
+                            scenario_label = "P3 – Moderate heterogeneity"),
+  find_power_curve_umbrella(mu_treat = effect_2, scenario_code = "P3",
+                            scenario_label = "P3 – Moderate heterogeneity"),
+  find_power_curve_umbrella(mu_treat = effect_3, scenario_code = "P3",
+                            scenario_label = "P3 – Moderate heterogeneity")
+)
+```
+
+
+
+```{r}
+target_power <- 0.8
+
+plot_power_curve(
+  power_all_umbrella,
+  "All prior scenarios – comparison"
+)
+```
+

@@ -1,0 +1,100 @@
+---
+title: "Umbrella Trial FDR and FWER simulations"
+author: "Angelo Capasso"
+format: html
+editor: visual
+---
+
+```{r setup}
+source("umbrella_functions.R")
+options(mc.cores = parallel::detectCores())
+```
+
+```{r scenarios}
+scenarios_effect_0_umb <- list(
+  list(name = "P1: high heterogeneity, effect size = 0",     n_arms = 5,
+       n_control = c(17,15,18,12,23), n_treat = c(17,15,18,12,23),
+       mu_treat = rep(0.8, 5), mu_control = 0.8, sd = 1, scenario_code = "P1"),
+  list(name = "P2: low heterogeneity, effect size = 0",      n_arms = 5,
+       n_control = c(17,15,18,12,23), n_treat = c(17,15,18,12,23),
+       mu_treat = rep(0.8, 5), mu_control = 0.8, sd = 1, scenario_code = "P2"),
+  list(name = "P3: moderate heterogeneity, effect size = 0", n_arms = 5,
+       n_control = c(17,15,18,12,23), n_treat = c(17,15,18,12,23),
+       mu_treat = rep(0.8, 5), mu_control = 0.8, sd = 1, scenario_code = "P3")
+)
+```
+
+```{r run-fdr}
+set.seed(123)
+n_sim_try_umb <- 500
+
+results_0_umb <- map(scenarios_effect_0_umb, function(sc) {
+  sim <- run_simulation_fdr_umb(
+    n_sim      = n_sim_try_umb,
+    n_arms     = sc$n_arms,
+    n_control  = sc$n_control,
+    n_treat    = sc$n_treat,
+    mu_treat   = sc$mu_treat,
+    mu_control = sc$mu_control,
+    sd         = sc$sd,
+    scenario   = sc$scenario_code
+  )
+  list(scenario    = sc$name,
+       performance = evaluate_performance_fdr_umb(sim))
+})
+
+summary_table_0_umb <- map_dfr(results_0_umb, ~ .x$performance |> mutate(scenario = .x$scenario))
+```
+
+```{r error-curves}
+set.seed(2026)
+no_effect_umb <- rep(0.8, 5)
+
+error_P1_umb <- find_error_curve_fdr_umb(mu_treat = no_effect_umb, scenario_code = "P1")
+error_P2_umb <- find_error_curve_fdr_umb(mu_treat = no_effect_umb, scenario_code = "P2")
+error_P3_umb <- find_error_curve_fdr_umb(mu_treat = no_effect_umb, scenario_code = "P3")
+
+error_all_umb <- bind_rows(error_P1_umb, error_P2_umb, error_P3_umb)
+```
+
+```{r plot-fdr-curves}
+plot_fdr_curve <- function(df, title_suffix) {
+  ggplot(df, aes(x = n, y = FDR, color = scenario)) +
+    geom_line(linewidth = 1.2) +
+    geom_point(size = 3) +
+    facet_grid(~ effect_size) +
+    scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+    labs(title = paste("FDR Curve stratified for different effect sizes", title_suffix),
+         x = "Sample Size per Arm", y = "FDR") +
+    theme_minimal(base_size = 14) +
+    theme(legend.position = "bottom")
+}
+
+plot_fdr_curve(error_P1_umb, "(high heterogeneity)")
+plot_fdr_curve(error_P2_umb, "(low heterogeneity)")
+plot_fdr_curve(error_P3_umb, "(moderate heterogeneity)")
+```
+
+```{r plot-fwer-fdr-bars}
+p_fwer_umb <- summary_table_0_umb |>
+  ggplot(aes(x = scenario, y = FWER, fill = scenario)) +
+  geom_col(alpha = 0.8) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+  labs(title = "FWER by Scenario", x = "Scenario", y = "FWER") +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none")
+
+p_fdr_umb <- summary_table_0_umb |>
+  ggplot(aes(x = scenario, y = FDR, fill = scenario)) +
+  geom_col(alpha = 0.8) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+  labs(title = "FDR by Scenario", x = "Scenario", y = "FDR") +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none")
+
+p_fwer_umb / p_fdr_umb +
+  plot_annotation(
+    title    = "FWER and FDR in Umbrella Trial",
+    subtitle = sprintf("n_sim = %d", n_sim_try_umb)
+  )
+```

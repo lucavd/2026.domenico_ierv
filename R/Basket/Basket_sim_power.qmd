@@ -1,0 +1,155 @@
+---
+title: "Bayesian Basket Trial Power simulation study"
+author: "Angelo Capasso"
+format: html
+editor: visual
+---
+
+```{r setup}
+source("basket_functions.R")
+```
+
+```{r options}
+invisible(lapply(pkgs, load_or_install))
+options(mc.cores = parallel::detectCores())
+```
+
+```{r define-scenarios}
+## Panel 1: High Effect size
+scenarios_effect08 <- list(
+  list(name = "P1: high heterogeneity, effect size = 0.8",     n_baskets = 5,
+       n = c(17,15,18,12,23), mu_treat = rep(0.8, 5), sd = 1, scenario_code = "P1"),
+  list(name = "P2: low heterogeneity, effect size = 0.8",      n_baskets = 5,
+       n = c(17,15,18,12,23), mu_treat = rep(0.8, 5), sd = 1, scenario_code = "P2"),
+  list(name = "P3: moderate heterogeneity, effect size = 0.8", n_baskets = 5,
+       n = c(17,15,18,12,23), mu_treat = rep(0.8, 5), sd = 1, scenario_code = "P3")
+)
+
+## Panel 2: Moderate Effect size
+scenarios_effect05 <- list(
+  list(name = "P1: high heterogeneity, effect size = 0.5",     n_baskets = 5,
+       n = c(17,15,18,12,23), mu_treat = rep(0.5, 5), sd = 1, scenario_code = "P1"),
+  list(name = "P2: low heterogeneity, effect size = 0.5",      n_baskets = 5,
+       n = c(17,15,18,12,23), mu_treat = rep(0.5, 5), sd = 1, scenario_code = "P2"),
+  list(name = "P3: moderate heterogeneity, effect size = 0.5", n_baskets = 5,
+       n = c(17,15,18,12,23), mu_treat = rep(0.5, 5), sd = 1, scenario_code = "P3")
+)
+
+## Panel 3: Low Effect size
+scenarios_effect02 <- list(
+  list(name = "P1: high heterogeneity, effect size = 0.2",     n_baskets = 5,
+       n = c(17,15,18,12,23), mu_treat = rep(0.2, 5), sd = 1, scenario_code = "P1"),
+  list(name = "P2: low heterogeneity, effect size = 0.2",      n_baskets = 5,
+       n = c(17,15,18,12,23), mu_treat = rep(0.2, 5), sd = 1, scenario_code = "P2"),
+  list(name = "P3: moderate heterogeneity, effect size = 0.2", n_baskets = 5,
+       n = c(17,15,18,12,23), mu_treat = rep(0.2, 5), sd = 1, scenario_code = "P3")
+)
+```
+
+```{r run-simulations}
+set.seed(2025)
+n_sim_real <- 500
+
+run_scenarios <- function(scenarios) {
+  map(scenarios, function(sc) {
+    sim <- run_simulation(
+      n_sim     = n_sim_real,
+      n_baskets = sc$n_baskets,
+      n         = sc$n,
+      mu_treat  = sc$mu_treat,
+      sd        = sc$sd,
+      scenario  = sc$scenario_code
+    )
+    list(
+      scenario    = sc$name,
+      performance = evaluate_performance(sim)
+    )
+  })
+}
+
+results_08 <- run_scenarios(scenarios_effect08)
+results_05 <- run_scenarios(scenarios_effect05)
+results_02 <- run_scenarios(scenarios_effect02)
+```
+
+```{r summary-tables}
+make_summary_table <- function(results) {
+  map_dfr(results, function(x) {
+    x$performance %>%
+      mutate(scenario = x$scenario)
+  })
+}
+
+summary_table_08 <- make_summary_table(results_08)
+summary_table_05 <- make_summary_table(results_05)
+summary_table_02 <- make_summary_table(results_02)
+```
+
+```{r plot-power-by-basket}
+plot_power_basket <- function(summary_table) {
+  summary_table %>%
+    filter(!is.nan(power)) %>%
+    ggplot(aes(x = basket, y = power, color = scenario, group = scenario)) +
+    geom_line(linewidth = 1) +
+    geom_point(size = 3) +
+    scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
+    scale_x_continuous(breaks = 1:5) +
+    labs(title = "Power by Basket", x = "Basket", y = "Power") +
+    theme_minimal() +
+    theme(legend.position = "bottom")
+}
+
+p1_basket_08 <- plot_power_basket(summary_table_08)
+p1_basket_05 <- plot_power_basket(summary_table_05)
+p1_basket_02 <- plot_power_basket(summary_table_02)
+
+(p1_basket_08 / p1_basket_05 / p1_basket_02) +
+  plot_annotation(
+    title    = "Basket Trial Results",
+    subtitle = sprintf("n_sim = %d", n_sim_real)
+  )
+```
+
+```{r power-curves}
+effect_1 <- rep(0.8, 5)
+effect_2 <- rep(0.5, 5)
+effect_3 <- rep(0.2, 5)
+
+compute_power_curves <- function(scenario_code) {
+  bind_rows(
+    find_power_curve(mu_treat = effect_1, scenario_code = scenario_code),
+    find_power_curve(mu_treat = effect_2, scenario_code = scenario_code),
+    find_power_curve(mu_treat = effect_3, scenario_code = scenario_code)
+  )
+}
+
+power_P1 <- compute_power_curves("P1")
+power_P2 <- compute_power_curves("P2")
+power_P3 <- compute_power_curves("P3")
+```
+
+```{r plot-power-curves}
+target_power <- 0.8
+
+plot_power_curve <- function(power_data, heterogeneity_label) {
+  ggplot(power_data, aes(x = n, y = power, color = factor(effect_size))) +
+    geom_line(linewidth = 1.2) +
+    geom_point(size = 3) +
+    facet_grid(~ effect_size) +
+    geom_hline(yintercept = target_power, linetype = "dashed", color = "black") +
+    scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+    labs(
+      title = paste("Power Curve stratified for different effect sizes",
+                    sprintf("(%s heterogeneity)", heterogeneity_label)),
+      x     = "Sample Size per Basket",
+      y     = "Power",
+      color = "Effect size"
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(legend.position = "bottom")
+}
+
+plot_power_curve(power_P1, "high")
+plot_power_curve(power_P2, "low")
+plot_power_curve(power_P3, "moderate")
+```

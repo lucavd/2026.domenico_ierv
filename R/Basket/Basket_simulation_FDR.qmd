@@ -1,0 +1,113 @@
+---
+title: "Basket Trial FDR and FWER simulations"
+author: "Angelo Capasso"
+format: html
+editor: visual
+---
+
+```{r setup}
+source("basket_functions.R")
+```
+
+```{r options}
+invisible(lapply(pkgs, load_or_install))
+options(mc.cores = parallel::detectCores())
+```
+
+```{r define-scenarios-fdr}
+scenarios_effect_0 <- list(
+  list(name = "P1: high heterogeneity, effect size = 0",     n_baskets = 5,
+       n = c(17,15,18,12,23), mu_treat = rep(0.8, 5),
+       mu_control = 0.8, sd = 1, scenario_code = "P1"),
+  list(name = "P2: low heterogeneity, effect size = 0",      n_baskets = 5,
+       n = c(17,15,18,12,23), mu_treat = rep(0.8, 5),
+       mu_control = 0.8, sd = 1, scenario_code = "P2"),
+  list(name = "P3: moderate heterogeneity, effect size = 0", n_baskets = 5,
+       n = c(17,15,18,12,23), mu_treat = rep(0.8, 5),
+       mu_control = 0.8, sd = 1, scenario_code = "P3")
+)
+```
+
+```{r run-simulations-fdr}
+set.seed(123)
+n_sim_real <- 500
+
+results_0 <- map(scenarios_effect_0, function(sc) {
+  sim <- run_simulation_fdr(
+    n_sim      = n_sim_real,
+    n_baskets  = sc$n_baskets,
+    n          = sc$n,
+    mu_treat   = sc$mu_treat,
+    mu_control = sc$mu_control,
+    sd         = sc$sd,
+    scenario   = sc$scenario_code
+  )
+  list(
+    scenario    = sc$name,
+    performance = evaluate_performance_fdr(sim)
+  )
+})
+```
+
+```{r summary-table-fdr}
+summary_table_0 <- map_dfr(results_0, function(x) {
+  x$performance %>%
+    mutate(scenario = x$scenario)
+})
+```
+
+```{r plot-fwer-fdr}
+p_fwer <- summary_table_0 %>%
+  ggplot(aes(x = scenario, y = FWER, fill = scenario)) +
+  geom_col(alpha = 0.8) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+  labs(title = "FWER by Scenario", x = "Scenario", y = "FWER") +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none")
+
+p_fdr <- summary_table_0 %>%
+  ggplot(aes(x = scenario, y = FDR, fill = scenario)) +
+  geom_col(alpha = 0.8) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+  labs(title = "FDR by Scenario", x = "Scenario", y = "FDR") +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none")
+
+p_fwer / p_fdr +
+  plot_annotation(
+    title    = "FWER and FDR in Basket Trial",
+    subtitle = sprintf("n_sim = %d", n_sim_real)
+  )
+```
+
+```{r error-curves}
+set.seed(2026)
+no_effect <- rep(0.8, 5)
+
+error_P1 <- find_error_curve_fdr(mu_treat = no_effect, scenario_code = "P1")
+error_P2 <- find_error_curve_fdr(mu_treat = no_effect, scenario_code = "P2")
+error_P3 <- find_error_curve_fdr(mu_treat = no_effect, scenario_code = "P3")
+
+error_all <- bind_rows(error_P1, error_P2, error_P3)
+```
+
+```{r plot-error-curves}
+plot_fdr_curve <- function(error_data, heterogeneity_label) {
+  ggplot(error_data, aes(x = n, y = FDR, color = scenario)) +
+    geom_line(linewidth = 1.2) +
+    geom_point(size = 3) +
+    scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+    labs(
+      title = paste("FDR Curve by sample size",
+                    sprintf("(%s heterogeneity)", heterogeneity_label)),
+      x     = "Sample Size per Basket",
+      y     = "FDR"
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(legend.position = "bottom")
+}
+
+plot_fdr_curve(error_P1, "high")
+plot_fdr_curve(error_P2, "low")
+plot_fdr_curve(error_P3, "moderate")
+```
