@@ -3,7 +3,7 @@
 # Lancia Basket e poi Umbrella in sequenza
 ##############################################################################
 
-set -e
+set -eo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 

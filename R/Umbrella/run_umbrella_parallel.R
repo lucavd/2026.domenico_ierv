@@ -14,59 +14,68 @@ library(future.apply)
 library(telegram.bot)
 
 # ===========================
-# Telegram setup
+# Setup
 # ===========================
-readRenviron(file.path(dirname(sys.frame(1)$ofile), "../../.env"))
-bot <- Bot(token = Sys.getenv("TELEGRAM_BOT_TOKEN"))
-chat_id <- Sys.getenv("TELEGRAM_CHAT_ID")
+cat("[UMBRELLA] Avvio script...\n"); flush.console()
+script_dir <- dirname(normalizePath(sub("--file=", "", grep("--file=", commandArgs(FALSE), value = TRUE)[1])))
+csv_dir    <- file.path(script_dir, "../..")
 
-# ===========================
-# Parallel setup
-# ===========================
-options(mc.cores = 128)
-n_workers <- 115
-plan(multisession, workers = n_workers)
+readRenviron(file.path(script_dir, "../../.env"))
+bot     <- Bot(token = Sys.getenv("TELEGRAM_BOT_TOKEN"))
+chat_id <- Sys.getenv("TELEGRAM_CHAT_ID")
+cat("[UMBRELLA] Telegram OK\n"); flush.console()
 
 # ===========================
 # Source umbrella functions
 # ===========================
-source(file.path(dirname(sys.frame(1)$ofile), "umbrella_functions.R"))
+source(file.path(script_dir, "umbrella_functions.R"))
+cat("[UMBRELLA] Funzioni caricate\n"); flush.console()
 
-# Override .fit_umbrella: cores = 1 (parallelism at sim level)
-.fit_umbrella <- function(data, priors, iter = 5000, chains = 4, seed = 123) {
-  brm(
+# ===========================
+# Pre-compile brms models (once, before spawning workers)
+# ===========================
+cat("[UMBRELLA] Pre-compilazione modelli Stan...\n"); flush.console()
+dummy_data <- map_dfr(1:5, ~ simulate_umbrella(.x, 10, 10, 0.5, sd = 1, standardise = TRUE))
+
+prior_list <- list(
+  P1 = c(prior(student_t(3, 0, 10), class = Intercept),
+         prior(normal(0, 1),        class = b),
+         prior(cauchy(0, 0.32),     class = sd, group = arm, coef = treatment),
+         prior(cauchy(0, 0.1),      class = sigma)),
+  P2 = c(prior(student_t(3, 0, 2),  class = Intercept),
+         prior(normal(0, 1),        class = b),
+         prior(cauchy(0, 0.4),      class = sd, group = arm, coef = treatment),
+         prior(cauchy(0, 1.2),      class = sigma)),
+  P3 = c(prior(student_t(3, 0, 5),  class = Intercept),
+         prior(normal(0, 1),        class = b),
+         prior(cauchy(0, 0.4),      class = sd, group = arm, coef = treatment),
+         prior(cauchy(0, 0.6),      class = sigma))
+)
+
+precompiled <- list()
+for (sc in names(prior_list)) {
+  precompiled[[sc]] <- brm(
     y ~ treatment + (1 | arm) + (0 + treatment | arm),
-    data    = data,
-    prior   = priors,
-    iter    = iter,
-    warmup  = iter / 2,
-    chains  = chains,
-    seed    = seed,
-    cores   = 1,
-    control = list(adapt_delta = 0.999, max_treedepth = 18),
-    refresh = 0
+    data = dummy_data, prior = prior_list[[sc]], chains = 0,
+    control = list(adapt_delta = 0.999, max_treedepth = 18)
   )
+  cat("  Compilato:", sc, "\n"); flush.console()
 }
 
-# Override fit_umbrella_model to use the new .fit_umbrella
+# Override fit_umbrella_model: reuse pre-compiled model (no recompilation in workers)
 fit_umbrella_model <- function(data, scenario, iter = 5000, chains = 4, seed = 123) {
-  priors <- switch(scenario,
-    P1 = c(prior(student_t(3, 0, 10), class = Intercept),
-           prior(normal(0, 1),        class = b),
-           prior(cauchy(0, 0.32),     class = sd, group = arm, coef = treatment),
-           prior(cauchy(0, 0.1),      class = sigma)),
-    P2 = c(prior(student_t(3, 0, 2),  class = Intercept),
-           prior(normal(0, 1),        class = b),
-           prior(cauchy(0, 0.4),      class = sd, group = arm, coef = treatment),
-           prior(cauchy(0, 1.2),      class = sigma)),
-    P3 = c(prior(student_t(3, 0, 5),  class = Intercept),
-           prior(normal(0, 1),        class = b),
-           prior(cauchy(0, 0.4),      class = sd, group = arm, coef = treatment),
-           prior(cauchy(0, 0.6),      class = sigma)),
-    stop("Unknown scenario: ", scenario)
-  )
-  .fit_umbrella(data, priors, iter, chains, seed)
+  update(precompiled[[scenario]], newdata = data,
+         iter = iter, warmup = iter / 2, chains = chains,
+         seed = seed, cores = 1, refresh = 0)
 }
+
+# ===========================
+# Parallel setup (after pre-compilation)
+# ===========================
+options(mc.cores = 128)
+n_workers <- 115
+plan(multisession, workers = n_workers)
+cat("[UMBRELLA] Plan multisession:", n_workers, "workers\n"); flush.console()
 
 # ===========================
 # Settings
@@ -74,7 +83,15 @@ fit_umbrella_model <- function(data, scenario, iter = 5000, chains = 4, seed = 1
 set.seed(2025)
 n_sim   <- 500
 n_grid  <- seq.int(from = 6, to = 30, by = 2)
-csv_dir <- file.path(dirname(sys.frame(1)$ofile), "../..")
+
+# Helper: restart workers to free /tmp space
+restart_workers <- function() {
+  plan(sequential)
+  gc(verbose = FALSE)
+  invisible(file.remove(list.files(tempdir(), full.names = TRUE, recursive = TRUE)))
+  plan(multisession, workers = n_workers)
+  cat("[UMBRELLA] Workers riavviati, temp pulito\n"); flush.console()
+}
 
 # ===========================
 # Parallel wrappers
@@ -153,6 +170,7 @@ power_fixed <- map_dfr(scenarios_power, function(s) {
 
 write_csv(power_fixed, file.path(csv_dir, "umbrella_power_fixed_n.csv"))
 bot$sendMessage(chat_id = chat_id, text = "[UMBRELLA] Power fixed-n salvato")
+restart_workers()
 
 # --- Power curves (3 heterogeneity x 3 effects x n_grid) ---
 effects    <- list(rep(0.8, 5), rep(0.5, 5), rep(0.2, 5))
@@ -161,12 +179,13 @@ sc_labels  <- c("P1 - High heterogeneity",
                  "P2 - Low heterogeneity",
                  "P3 - Moderate heterogeneity")
 
-power_curves <- map_dfr(seq_along(sc_codes), function(i) {
-  map_dfr(effects, function(eff) {
+power_curves_list <- list()
+for (i in seq_along(sc_codes)) {
+  for (eff in effects) {
     bot$sendMessage(chat_id = chat_id,
       text = paste("[UMBRELLA] Power curve:", sc_codes[i],
                    "effect =", eff[1], "-", format(Sys.time(), "%H:%M:%S")))
-    map_dfr(n_grid, function(n_val) {
+    chunk <- map_dfr(n_grid, function(n_val) {
       sim   <- run_simulation_umbrella_par(
         n_sim, 5, rep(n_val, 5), rep(n_val, 5), eff, 1, sc_codes[i])
       power <- evaluate_performance_umbrella(sim) |>
@@ -174,8 +193,11 @@ power_curves <- map_dfr(seq_along(sc_codes), function(i) {
       tibble(scenario = sc_labels[i], n = n_val,
              power = power, effect_size = eff[1])
     })
-  })
-})
+    power_curves_list <- c(power_curves_list, list(chunk))
+    restart_workers()
+  }
+}
+power_curves <- bind_rows(power_curves_list)
 
 write_csv(power_curves, file.path(csv_dir, "umbrella_power_curves.csv"))
 
@@ -217,21 +239,26 @@ fdr_fixed <- map_dfr(scenarios_fdr, function(s) {
 
 write_csv(fdr_fixed, file.path(csv_dir, "umbrella_fdr_fixed_n.csv"))
 bot$sendMessage(chat_id = chat_id, text = "[UMBRELLA] FDR fixed-n salvato")
+restart_workers()
 
 # --- FDR error curves (3 heterogeneity x n_grid) ---
 no_effect <- rep(0.8, 5)
 
-fdr_curves <- map_dfr(sc_codes, function(sc) {
+fdr_curves_list <- list()
+for (sc in sc_codes) {
   bot$sendMessage(chat_id = chat_id,
     text = paste("[UMBRELLA] FDR curve:", sc, "-", format(Sys.time(), "%H:%M:%S")))
-  map_dfr(n_grid, function(n_val) {
+  chunk <- map_dfr(n_grid, function(n_val) {
     sim  <- run_simulation_fdr_umb_par(
       n_sim, 5, rep(n_val, 5), rep(n_val, 5),
       no_effect, 0.8, 1, sc)
     perf <- evaluate_performance_fdr_umb(sim)
     tibble(scenario = sc, n = n_val, FDR = perf$FDR, FWER = perf$FWER)
   })
-})
+  fdr_curves_list <- c(fdr_curves_list, list(chunk))
+  restart_workers()
+}
+fdr_curves <- bind_rows(fdr_curves_list)
 
 write_csv(fdr_curves, file.path(csv_dir, "umbrella_fdr_curves.csv"))
 
