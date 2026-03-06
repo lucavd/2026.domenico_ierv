@@ -10,7 +10,6 @@ source("umbrella_functions.R")
 options(mc.cores = parallel::detectCores())
 ```
 
-
 ```{r}
 scenarios_effect08_umbrella <- list(
   list(name = "P1: high heterogeneity, effect size = 0.8",
@@ -93,7 +92,6 @@ scenarios_effect02_umbrella <- list(
 )
 ```
 
-
 ```{r}
 set.seed(2025)
 n_sim_real <- 500
@@ -103,13 +101,11 @@ results_05_umbrella <- run_all(scenarios_effect05_umbrella)
 results_02_umbrella <- run_all(scenarios_effect02_umbrella)
 ```
 
-
 ```{r}
 summary_table_08_umbrella <- build_summary(results_08_umbrella)
 summary_table_05_umbrella <- build_summary(results_05_umbrella)
 summary_table_02_umbrella <- build_summary(results_02_umbrella)
 ```
-
 
 ```{r}
 p_arm_08 <- plot_power_by_arm(summary_table_08_umbrella, "Effect size = 0.8")
@@ -122,7 +118,6 @@ p_arm_02 <- plot_power_by_arm(summary_table_02_umbrella, "Effect size = 0.2")
     subtitle = sprintf("n_sim = %d", n_sim_real)
   )
 ```
-
 
 ```{r}
 effect_1 <- rep(0.8, 5)
@@ -153,8 +148,6 @@ power_all_umbrella <- bind_rows(
 )
 ```
 
-
-
 ```{r}
 target_power <- 0.8
 
@@ -164,3 +157,52 @@ plot_power_curve(
 )
 ```
 
+```{r "mape_ci_plots"}
+perf_08 <- summary_table_08_umbrella
+perf_05 <- summary_table_05_umbrella
+perf_02 <- summary_table_02_umbrella
+
+# Combina i tre effect size in un unico dataset per plotting
+perf_all <- bind_rows(
+  perf_08 %>% mutate(effect_size = 0.8),
+  perf_05 %>% mutate(effect_size = 0.5),
+  perf_02 %>% mutate(effect_size = 0.2)
+)
+
+perf_all$effect_size <- factor(perf_all$effect_size, levels = c(0.2, 0.5, 0.8))
+```
+
+```{r}
+# --- Plot MAPE per arm ---
+p_mape <- ggplot(perf_all, aes(x = arm, y = MAPE, color = scenario, group = scenario)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 3) +
+  facet_grid(~ effect_size,
+             labeller = labeller(effect_size = \(x) paste0("Effect size = ", x))) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "MAPE per Arm – Umbrella Trial",
+       x = "Arm", y = "MAPE", color = "Scenario") +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "bottom")
+```
+
+```{r}
+# --- Plot (CI width) per arm ---
+p_ci <- ggplot(perf_all, aes(x = arm, y = mean_ci_width, color = scenario, group = scenario)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 3) +
+  facet_grid(~ effect_size,
+             labeller = labeller(effect_size = \(x) paste0("Effect size = ", x))) +
+  labs(title = "Mean Credible Interval Width per Arm – Umbrella Trial",
+       x = "Arm", y = "Mean CI Width", color = "Scenario") +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "bottom")
+```
+
+```{r}
+(p_mape / p_ci) +
+  plot_annotation(
+    title = "Umbrella Trial – Estimation Metrics per Arm",
+    subtitle = sprintf("n_sim = %d", n_sim_real)
+  )
+```

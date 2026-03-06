@@ -110,7 +110,7 @@ p1_basket_02 <- plot_power_basket(summary_table_02)
   )
 ```
 
-```{r power-curves}
+```{r}
 effect_1 <- rep(0.8, 5)
 effect_2 <- rep(0.5, 5)
 effect_3 <- rep(0.2, 5)
@@ -126,16 +126,14 @@ compute_power_curves <- function(scenario_code) {
 power_P1 <- compute_power_curves("P1")
 power_P2 <- compute_power_curves("P2")
 power_P3 <- compute_power_curves("P3")
-```
 
-```{r plot-power-curves}
 target_power <- 0.8
 
 plot_power_curve <- function(power_data, heterogeneity_label) {
   ggplot(power_data, aes(x = n, y = power, color = factor(effect_size))) +
     geom_line(linewidth = 1.2) +
     geom_point(size = 3) +
-    facet_grid(~ effect_size) +
+    facet_grid(~ scenario) +
     geom_hline(yintercept = target_power, linetype = "dashed", color = "black") +
     scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
     labs(
@@ -152,4 +150,36 @@ plot_power_curve <- function(power_data, heterogeneity_label) {
 plot_power_curve(power_P1, "high")
 plot_power_curve(power_P2, "low")
 plot_power_curve(power_P3, "moderate")
+```
+
+```{r}
+plot_metric_basket <- function(summary_table, metric, y_label) {
+  summary_table %>%
+    ggplot(aes(x = basket, y = !!sym(metric), color = scenario, group = scenario)) +
+    geom_line(linewidth = 1) +
+    geom_point(size = 3) +
+    scale_x_continuous(breaks = 1:5) +
+    labs(title = paste(y_label, "by Basket"), x = "Basket", y = y_label) +
+    theme_minimal() +
+    theme(legend.position = "bottom")
+}
+
+# Power
+p_power_08 <- plot_metric_basket(summary_table_08, "power", "Power")
+p_power_05 <- plot_metric_basket(summary_table_05, "power", "Power")
+p_power_02 <- plot_metric_basket(summary_table_02, "power", "Power")
+
+# MAPE
+p_mape_08 <- plot_metric_basket(summary_table_08, "MAPE", "MAPE")
+p_mape_05 <- plot_metric_basket(summary_table_05, "MAPE", "MAPE")
+p_mape_02 <- plot_metric_basket(summary_table_02, "MAPE", "MAPE")
+
+# Mean CI Width
+p_ci_08 <- plot_metric_basket(summary_table_08, "mean_ci_width", "Mean CI Width")
+p_ci_05 <- plot_metric_basket(summary_table_05, "mean_ci_width", "Mean CI Width")
+p_ci_02 <- plot_metric_basket(summary_table_02, "mean_ci_width", "Mean CI Width")
+
+(p_power_08 / p_power_05 / p_power_02) + plot_annotation(title = "Power by Basket – Different Effect Sizes")
+(p_mape_08  / p_mape_05  / p_mape_02)  + plot_annotation(title = "MAPE by Basket – Different Effect Sizes")
+(p_ci_08    / p_ci_05    / p_ci_02)    + plot_annotation(title = "Mean CI Width by Basket – Different Effect Sizes")
 ```

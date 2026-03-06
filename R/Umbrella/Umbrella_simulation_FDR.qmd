@@ -43,7 +43,19 @@ results_0_umb <- map(scenarios_effect_0_umb, function(sc) {
        performance = evaluate_performance_fdr_umb(sim))
 })
 
-summary_table_0_umb <- map_dfr(results_0_umb, ~ .x$performance |> mutate(scenario = .x$scenario))
+# --- Creazione summary table coerente con nuove funzioni ---
+summary_table_0_umb <- map_dfr(results_0_umb, function(x) {
+  # Unisco error rates e stima
+  tibble(
+    scenario = x$scenario,
+    FWER     = x$performance$error_rates$FWER,
+    FDR      = x$performance$error_rates$FDR,
+    mean_ci_width = mean(x$performance$estimation$mean_ci_width, na.rm = TRUE),
+    mean_ci_lower = mean(x$performance$estimation$ci_lower_mean, na.rm = TRUE),
+    mean_ci_upper = mean(x$performance$estimation$ci_upper_mean, na.rm = TRUE),
+    coverage = mean(x$performance$estimation$coverage, na.rm = TRUE)
+  )
+})
 ```
 
 ```{r error-curves}
@@ -95,6 +107,32 @@ p_fdr_umb <- summary_table_0_umb |>
 p_fwer_umb / p_fdr_umb +
   plot_annotation(
     title    = "FWER and FDR in Umbrella Trial",
+    subtitle = sprintf("n_sim = %d", n_sim_try_umb)
+  )
+```
+
+```{r plot-mape-ci}
+perf_all_metrics <- summary_table_0_umb |>
+  mutate(scenario = factor(scenario, levels = unique(scenario)))
+
+# Plot MAPE per scenario
+p_mape <- ggplot(perf_all_metrics, aes(x = scenario, y = MAPE, fill = scenario)) +
+  geom_col(alpha = 0.8) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "MAPE by Scenario", x = "Scenario", y = "MAPE") +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none")
+
+# Plot CI width per scenario
+p_ci <- ggplot(perf_all_metrics, aes(x = scenario, y = mean_ci_width, fill = scenario)) +
+  geom_col(alpha = 0.8) +
+  labs(title = "Mean CI Width by Scenario", x = "Scenario", y = "Mean CI Width") +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none")
+
+p_mape / p_ci +
+  plot_annotation(
+    title = "Umbrella Trial – Estimation Metrics",
     subtitle = sprintf("n_sim = %d", n_sim_try_umb)
   )
 ```

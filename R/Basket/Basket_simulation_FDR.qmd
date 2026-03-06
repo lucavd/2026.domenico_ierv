@@ -33,10 +33,11 @@ set.seed(123)
 n_sim_real <- 500
 
 results_0 <- map(scenarios_effect_0, function(sc) {
-  sim <- run_simulation_fdr(
+  sim <- run_simulation_fdr_umb(
     n_sim      = n_sim_real,
-    n_baskets  = sc$n_baskets,
-    n          = sc$n,
+    n_arms     = sc$n_baskets,
+    n_control  = sc$n,
+    n_treat    = sc$n,
     mu_treat   = sc$mu_treat,
     mu_control = sc$mu_control,
     sd         = sc$sd,
@@ -44,20 +45,18 @@ results_0 <- map(scenarios_effect_0, function(sc) {
   )
   list(
     scenario    = sc$name,
-    performance = evaluate_performance_fdr(sim)
+    performance = evaluate_performance_fdr_umb(sim)
   )
 })
 ```
 
 ```{r summary-table-fdr}
-summary_table_0 <- map_dfr(results_0, function(x) {
-  x$performance %>%
-    mutate(scenario = x$scenario)
-})
+summary_table_0_error <- map_dfr(results_0, ~ .x$performance$error_rates |> mutate(scenario = .x$scenario))
+summary_table_0_estim <- map_dfr(results_0, ~ .x$performance$estimation  |> mutate(scenario = .x$scenario))
 ```
 
 ```{r plot-fwer-fdr}
-p_fwer <- summary_table_0 %>%
+p_fwer <- summary_table_0_error %>%
   ggplot(aes(x = scenario, y = FWER, fill = scenario)) +
   geom_col(alpha = 0.8) +
   scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
@@ -65,7 +64,7 @@ p_fwer <- summary_table_0 %>%
   theme_minimal(base_size = 14) +
   theme(legend.position = "none")
 
-p_fdr <- summary_table_0 %>%
+p_fdr <- summary_table_0_error %>%
   ggplot(aes(x = scenario, y = FDR, fill = scenario)) +
   geom_col(alpha = 0.8) +
   scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
@@ -91,16 +90,16 @@ error_P3 <- find_error_curve_fdr(mu_treat = no_effect, scenario_code = "P3")
 error_all <- bind_rows(error_P1, error_P2, error_P3)
 ```
 
-```{r plot-error-curves}
+```{r}
 plot_fdr_curve <- function(error_data, heterogeneity_label) {
   ggplot(error_data, aes(x = n, y = FDR, color = scenario)) +
     geom_line(linewidth = 1.2) +
     geom_point(size = 3) +
     scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
     labs(
-      title = paste("FDR Curve by sample size",
+      title = paste("FDR Curve by Sample Size",
                     sprintf("(%s heterogeneity)", heterogeneity_label)),
-      x     = "Sample Size per Basket",
+      x     = "Sample Size per Arm",
       y     = "FDR"
     ) +
     theme_minimal(base_size = 14) +
@@ -110,4 +109,25 @@ plot_fdr_curve <- function(error_data, heterogeneity_label) {
 plot_fdr_curve(error_P1, "high")
 plot_fdr_curve(error_P2, "low")
 plot_fdr_curve(error_P3, "moderate")
+
+
+plot_metric_curve <- function(summary_table, metric, title_suffix) {
+  ggplot(summary_table, aes(x = arm, y = !!sym(metric), color = scenario, group = scenario)) +
+    geom_line(linewidth = 1.2) +
+    geom_point(size = 3) +
+    labs(
+      title = paste(title_suffix, "by Arm"),
+      x = "Arm",
+      y = title_suffix
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(legend.position = "bottom")
+}
+
+# MAPE
+p_mape <- plot_metric_curve(summary_table_0_estim, "MAPE", "MAPE")
+# Mean CI Width
+p_ci   <- plot_metric_curve(summary_table_0_estim, "mean_ci_width", "Mean CI Width")
+
+p_mape / p_ci + plot_annotation(title = "Estimation Metrics in Basket Trial")
 ```
