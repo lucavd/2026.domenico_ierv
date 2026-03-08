@@ -67,8 +67,8 @@ fit_basket_model <- function(data, heterogeneity = c("high", "low", "moderate"),
 # ===========================
 # Parallel setup (after pre-compilation)
 # ===========================
-options(mc.cores = 128)
-n_workers <- 115
+options(mc.cores = 50)
+n_workers <- 50
 plan(multisession, workers = n_workers)
 cat("[BASKET] Plan multisession:", n_workers, "workers\n"); flush.console()
 
@@ -242,7 +242,12 @@ fdr_fixed <- map_dfr(scenarios_fdr, function(s) {
   sim  <- run_simulation_fdr_par(n_sim, s$n_baskets, s$n,
                                   s$mu_treat, s$mu_control, s$sd, s$sc)
   perf <- evaluate_performance_fdr(sim)
-  perf %>% mutate(scenario = s$name)
+  # perf is now a list with $error_rates and $estimation
+  tibble(
+    scenario = s$name,
+    FWER = perf$error_rates$FWER,
+    FDR  = perf$error_rates$FDR
+  )
 })
 
 write_csv(fdr_fixed, file.path(csv_dir, "basket_fdr_fixed_n.csv"))
@@ -265,7 +270,7 @@ for (sc in sc_codes) {
     sim  <- run_simulation_fdr_par(n_sim, 5, rep(n_val, 5),
                                     no_effect, 0.8, 1, sc)
     perf <- evaluate_performance_fdr(sim)
-    tibble(scenario = sc, n = n_val, FDR = perf$FDR, FWER = perf$FWER)
+    tibble(scenario = sc, n = n_val, FDR = perf$error_rates$FDR, FWER = perf$error_rates$FWER)
   })
   fdr_curves_list <- c(fdr_curves_list, list(chunk))
   restart_workers()

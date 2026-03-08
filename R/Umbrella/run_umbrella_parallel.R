@@ -72,8 +72,8 @@ fit_umbrella_model <- function(data, scenario, iter = 5000, chains = 4, seed = 1
 # ===========================
 # Parallel setup (after pre-compilation)
 # ===========================
-options(mc.cores = 128)
-n_workers <- 115
+options(mc.cores = 50)
+n_workers <- 50
 plan(multisession, workers = n_workers)
 cat("[UMBRELLA] Plan multisession:", n_workers, "workers\n"); flush.console()
 
@@ -138,6 +138,10 @@ power_start <- Sys.time()
 n_ctrl <- c(17,15,18,12,23)
 n_trt  <- c(17,15,18,12,23)
 
+if (file.exists(file.path(csv_dir, "umbrella_power_fixed_n.csv"))) {
+  cat("[UMBRELLA] Power fixed-n gia' esistente, salto\n"); flush.console()
+  bot$sendMessage(chat_id = chat_id, text = "[UMBRELLA] Power fixed-n gia' fatto, salto")
+} else {
 scenarios_power <- list(
   list(name = "P1_effect08", n_arms = 5, n_control = n_ctrl, n_treat = n_trt,
        mu_treat = rep(0.8, 5), sd = 1, sc = "P1"),
@@ -171,6 +175,7 @@ power_fixed <- map_dfr(scenarios_power, function(s) {
 write_csv(power_fixed, file.path(csv_dir, "umbrella_power_fixed_n.csv"))
 bot$sendMessage(chat_id = chat_id, text = "[UMBRELLA] Power fixed-n salvato")
 restart_workers()
+} # end if !file.exists
 
 # --- Power curves (3 heterogeneity x 3 effects x n_grid) ---
 effects    <- list(rep(0.8, 5), rep(0.5, 5), rep(0.2, 5))
@@ -179,6 +184,10 @@ sc_labels  <- c("P1 - High heterogeneity",
                  "P2 - Low heterogeneity",
                  "P3 - Moderate heterogeneity")
 
+if (file.exists(file.path(csv_dir, "umbrella_power_curves.csv"))) {
+  cat("[UMBRELLA] Power curves gia' esistente, salto\n"); flush.console()
+  bot$sendMessage(chat_id = chat_id, text = "[UMBRELLA] Power curves gia' fatto, salto")
+} else {
 power_curves_list <- list()
 for (i in seq_along(sc_codes)) {
   for (eff in effects) {
@@ -200,6 +209,7 @@ for (i in seq_along(sc_codes)) {
 power_curves <- bind_rows(power_curves_list)
 
 write_csv(power_curves, file.path(csv_dir, "umbrella_power_curves.csv"))
+} # end if !file.exists
 
 power_end <- Sys.time()
 bot$sendMessage(chat_id = chat_id,
@@ -219,6 +229,10 @@ bot$sendMessage(chat_id = chat_id,
 fdr_start <- Sys.time()
 
 # --- Fixed-n FDR scenarios (3 heterogeneity under H0) ---
+if (file.exists(file.path(csv_dir, "umbrella_fdr_fixed_n.csv"))) {
+  cat("[UMBRELLA] FDR fixed-n gia' esistente, salto\n"); flush.console()
+  bot$sendMessage(chat_id = chat_id, text = "[UMBRELLA] FDR fixed-n gia' fatto, salto")
+} else {
 scenarios_fdr <- list(
   list(name = "P1_null", n_arms = 5, n_control = n_ctrl, n_treat = n_trt,
        mu_treat = rep(0.8, 5), mu_control = 0.8, sd = 1, sc = "P1"),
@@ -234,16 +248,26 @@ fdr_fixed <- map_dfr(scenarios_fdr, function(s) {
   sim  <- run_simulation_fdr_umb_par(n_sim, s$n_arms, s$n_control, s$n_treat,
                                       s$mu_treat, s$mu_control, s$sd, s$sc)
   perf <- evaluate_performance_fdr_umb(sim)
-  perf %>% mutate(scenario = s$name)
+  # perf is now a list with $error_rates and $estimation
+  tibble(
+    scenario = s$name,
+    FWER = perf$error_rates$FWER,
+    FDR  = perf$error_rates$FDR
+  )
 })
 
 write_csv(fdr_fixed, file.path(csv_dir, "umbrella_fdr_fixed_n.csv"))
 bot$sendMessage(chat_id = chat_id, text = "[UMBRELLA] FDR fixed-n salvato")
 restart_workers()
+} # end if !file.exists
 
 # --- FDR error curves (3 heterogeneity x n_grid) ---
 no_effect <- rep(0.8, 5)
 
+if (file.exists(file.path(csv_dir, "umbrella_fdr_curves.csv"))) {
+  cat("[UMBRELLA] FDR curves gia' esistente, salto\n"); flush.console()
+  bot$sendMessage(chat_id = chat_id, text = "[UMBRELLA] FDR curves gia' fatto, salto")
+} else {
 fdr_curves_list <- list()
 for (sc in sc_codes) {
   bot$sendMessage(chat_id = chat_id,
@@ -253,7 +277,7 @@ for (sc in sc_codes) {
       n_sim, 5, rep(n_val, 5), rep(n_val, 5),
       no_effect, 0.8, 1, sc)
     perf <- evaluate_performance_fdr_umb(sim)
-    tibble(scenario = sc, n = n_val, FDR = perf$FDR, FWER = perf$FWER)
+    tibble(scenario = sc, n = n_val, FDR = perf$error_rates$FDR, FWER = perf$error_rates$FWER)
   })
   fdr_curves_list <- c(fdr_curves_list, list(chunk))
   restart_workers()
@@ -261,6 +285,7 @@ for (sc in sc_codes) {
 fdr_curves <- bind_rows(fdr_curves_list)
 
 write_csv(fdr_curves, file.path(csv_dir, "umbrella_fdr_curves.csv"))
+} # end if !file.exists
 
 fdr_end <- Sys.time()
 bot$sendMessage(chat_id = chat_id,

@@ -1,4 +1,4 @@
-FWER,FDR,scenario
-0.022,0.022,P1_null
-0.024,0.024,P2_null
-0.026,0.026,P3_null
+scenario,FWER,FDR
+P1_null,0.022,0.022
+P2_null,0.024,0.024
+P3_null,0.026,0.026
