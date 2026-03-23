@@ -1,0 +1,98 @@
+---
+title: "Basket Power Simulation Frequentist"
+author: "Angelo Capasso"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(patchwork)
+library(ggplot2)
+
+source("basket_functions.R")
+
+set.seed(2025)
+n_sim_real <- 2000
+```
+
+```{r}
+# Panel 1: High effect
+scenarios_effect08 <- list(
+  list(name = "P1: high heterogeneity, effect size = 0.8",     n_baskets = 5, n = c(17,15,18,12,23), mu_treat = rep(0.8, 5), sd = 1, scenario_code = "P1"),
+  list(name = "P2: low heterogeneity, effect size = 0.8",      n_baskets = 5, n = c(17,15,18,12,23), mu_treat = rep(0.8, 5), sd = 1, scenario_code = "P2"),
+  list(name = "P3: moderate heterogeneity, effect size = 0.8", n_baskets = 5, n = c(17,15,18,12,23), mu_treat = rep(0.8, 5), sd = 1, scenario_code = "P3")
+)
+
+# Panel 2: Moderate effect
+scenarios_effect05 <- list(
+  list(name = "P1: high heterogeneity, effect size = 0.5",     n_baskets = 5, n = c(17,15,18,12,23), mu_treat = rep(0.5, 5), sd = 1, scenario_code = "P1"),
+  list(name = "P2: low heterogeneity, effect size = 0.5",      n_baskets = 5, n = c(17,15,18,12,23), mu_treat = rep(0.5, 5), sd = 1, scenario_code = "P2"),
+  list(name = "P3: moderate heterogeneity, effect size = 0.5", n_baskets = 5, n = c(17,15,18,12,23), mu_treat = rep(0.5, 5), sd = 1, scenario_code = "P3")
+)
+
+# Panel 3: Low effect
+scenarios_effect02 <- list(
+  list(name = "P1: high heterogeneity, effect size = 0.2",     n_baskets = 5, n = c(17,15,18,12,23), mu_treat = rep(0.2, 5), sd = 1, scenario_code = "P1"),
+  list(name = "P2: low heterogeneity, effect size = 0.2",      n_baskets = 5, n = c(17,15,18,12,23), mu_treat = rep(0.2, 5), sd = 1, scenario_code = "P2"),
+  list(name = "P3: moderate heterogeneity, effect size = 0.2", n_baskets = 5, n = c(17,15,18,12,23), mu_treat = rep(0.2, 5), sd = 1, scenario_code = "P3")
+)
+```
+
+```{r}
+results_08_basket_freq <- run_all_basket_freq(scenarios_effect08)
+results_05_basket_freq <- run_all_basket_freq(scenarios_effect05)
+results_02_basket_freq <- run_all_basket_freq(scenarios_effect02)
+```
+
+```{r}
+summary_table_08_basket_freq <- build_summary_basket_freq(results_08_basket_freq)
+summary_table_05_basket_freq <- build_summary_basket_freq(results_05_basket_freq)
+summary_table_02_basket_freq <- build_summary_basket_freq(results_02_basket_freq)
+```
+
+```{r}
+effect_1 <- rep(0.8, 5)
+effect_2 <- rep(0.5, 5)
+effect_3 <- rep(0.2, 5)
+
+power_all_basket_freq <- bind_rows(
+  # High heterogeneity – P1
+  find_power_curve_basket_freq(mu_treat = effect_1, heterogeneity = "high", scenario_label = "P1 – High heterogeneity"),
+  find_power_curve_basket_freq(mu_treat = effect_2, heterogeneity = "high", scenario_label = "P1 – High heterogeneity"),
+  find_power_curve_basket_freq(mu_treat = effect_3, heterogeneity = "high", scenario_label = "P1 – High heterogeneity"),
+  
+  # Low heterogeneity – P2
+  find_power_curve_basket_freq(mu_treat = effect_1, heterogeneity = "low", scenario_label = "P2 – Low heterogeneity"),
+  find_power_curve_basket_freq(mu_treat = effect_2, heterogeneity = "low", scenario_label = "P2 – Low heterogeneity"),
+  find_power_curve_basket_freq(mu_treat = effect_3, heterogeneity = "low", scenario_label = "P2 – Low heterogeneity"),
+  
+  # Moderate heterogeneity – P3
+  find_power_curve_basket_freq(mu_treat = effect_1, heterogeneity = "moderate", scenario_label = "P3 – Moderate heterogeneity"),
+  find_power_curve_basket_freq(mu_treat = effect_2, heterogeneity = "moderate", scenario_label = "P3 – Moderate heterogeneity"),
+  find_power_curve_basket_freq(mu_treat = effect_3, heterogeneity = "moderate", scenario_label = "P3 – Moderate heterogeneity")
+)
+```
+
+```{r}
+library(openxlsx)
+
+# Crea un nuovo workbook
+wb <- createWorkbook()
+
+# Aggiungi i fogli
+addWorksheet(wb, "Summary_08")
+addWorksheet(wb, "Summary_05")
+addWorksheet(wb, "Summary_02")
+addWorksheet(wb, "Power_Curves")
+
+# Scrivi i dati nei fogli
+writeData(wb, "Summary_08", summary_table_08_basket_freq)
+writeData(wb, "Summary_05", summary_table_05_basket_freq)
+writeData(wb, "Summary_02", summary_table_02_basket_freq)
+writeData(wb, "Power_Curves", power_all_basket_freq)
+
+# Salva il file
+saveWorkbook(wb, "basket_simulation_power_freq.xlsx", overwrite = TRUE)
+
+```

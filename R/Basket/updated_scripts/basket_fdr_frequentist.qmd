@@ -1,0 +1,83 @@
+---
+title: "Basket FDR Simulation Frequentist"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(patchwork)
+source("basket_functions.R")
+options(mc.cores = parallel::detectCores())
+set.seed(2025)
+
+n_sim_real <- 2000
+```
+
+```{r}
+scenarios_fdr_basket <- list(
+  list(name = "P1: high heterogeneity, effect size = 0",
+       n_baskets = 5,
+       n = c(17,15,18,12,23),
+       mu_treat  = rep(0.8, 5),  # mu_control = 0.8 → effect_size = 0
+       sd        = 1,
+       scenario_code = "P1"),
+
+  list(name = "P2: low heterogeneity, effect size = 0",
+       n_baskets = 5,
+       n = c(17,15,18,12,23),
+       mu_treat  = rep(0.8, 5),
+       sd        = 1,
+       scenario_code = "P2"),
+
+  list(name = "P3: moderate heterogeneity, effect size = 0",
+       n_baskets = 5,
+       n = c(17,15,18,12,23),
+       mu_treat  = rep(0.8, 5),
+       sd        = 1,
+       scenario_code = "P3")
+)
+```
+
+```{r}
+results_fdr_basket <- run_all_fdr_basket_freq(scenarios_fdr_basket)
+
+summary_table_fdr_basket <- build_summary_fdr_basket_freq(results_fdr_basket)
+summary_table_fdr_basket
+```
+
+```{r}
+n_grid <- seq(6, 30, by = 2)
+mu_treat_vec <- rep(0.8, 5)  # mu_control = 0.8 → effect_size = 0
+
+fdr_high     <- find_error_curve_fdr_basket_freq(n_grid = n_grid, n_sim = n_sim_real, n_baskets = 5,
+                                                 mu_treat = mu_treat_vec, mu_control = 0.8, heterogeneity = "high")
+fdr_moderate <- find_error_curve_fdr_basket_freq(n_grid = n_grid, n_sim = n_sim_real, n_baskets = 5,
+                                                 mu_treat = mu_treat_vec, mu_control = 0.8, heterogeneity = "moderate")
+fdr_low      <- find_error_curve_fdr_basket_freq(n_grid = n_grid, n_sim = n_sim_real, n_baskets = 5,
+                                                 mu_treat = mu_treat_vec, mu_control = 0.8, heterogeneity = "low")
+
+fdr_all <- bind_rows(
+  fdr_high %>% mutate(heterogeneity = "high"),
+  fdr_moderate %>% mutate(heterogeneity = "moderate"),
+  fdr_low %>% mutate(heterogeneity = "low")
+)
+```
+
+```{r}
+library(openxlsx)
+
+# Crea un nuovo workbook
+wb <- createWorkbook()
+
+# Aggiungi i fogli
+addWorksheet(wb, "Summary_FDR")
+addWorksheet(wb, "FDR_Curves")
+
+# Scrivi i dati nei fogli
+writeData(wb, "Summary_FDR", summary_table_fdr_basket)
+writeData(wb, "FDR_Curves", fdr_all)
+
+# Salva il file
+saveWorkbook(wb, "basket_simulation_fdr_freq.xlsx", overwrite = TRUE)
+```

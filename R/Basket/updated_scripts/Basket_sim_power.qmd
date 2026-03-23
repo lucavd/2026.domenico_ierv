@@ -1,0 +1,259 @@
+---
+title: "Bayesian Basket Trial Power simulation study"
+author: "Angelo Capasso"
+format: html
+editor: visual
+---
+
+```{r setup}
+source("basket_functions.R")
+```
+
+
+```{r options}
+invisible(lapply(pkgs, load_or_install))
+options(mc.cores = parallel::detectCores())
+```
+
+
+```{r define-scenarios}
+## Panel 1: High Effect size
+scenarios_effect08 <- list(
+  list(name = "P1: high heterogeneity, effect size = 0.8",     n_baskets = 5,
+       n = c(17,15,18,12,23), mu_treat = rep(0.8, 5), sd = 1, scenario_code = "P1"),
+  list(name = "P2: low heterogeneity, effect size = 0.8",      n_baskets = 5,
+       n = c(17,15,18,12,23), mu_treat = rep(0.8, 5), sd = 1, scenario_code = "P2"),
+  list(name = "P3: moderate heterogeneity, effect size = 0.8", n_baskets = 5,
+       n = c(17,15,18,12,23), mu_treat = rep(0.8, 5), sd = 1, scenario_code = "P3")
+)
+
+## Panel 2: Moderate Effect size
+scenarios_effect05 <- list(
+  list(name = "P1: high heterogeneity, effect size = 0.5",     n_baskets = 5,
+       n = c(17,15,18,12,23), mu_treat = rep(0.5, 5), sd = 1, scenario_code = "P1"),
+  list(name = "P2: low heterogeneity, effect size = 0.5",      n_baskets = 5,
+       n = c(17,15,18,12,23), mu_treat = rep(0.5, 5), sd = 1, scenario_code = "P2"),
+  list(name = "P3: moderate heterogeneity, effect size = 0.5", n_baskets = 5,
+       n = c(17,15,18,12,23), mu_treat = rep(0.5, 5), sd = 1, scenario_code = "P3")
+)
+
+## Panel 3: Low Effect size
+scenarios_effect02 <- list(
+  list(name = "P1: high heterogeneity, effect size = 0.2",     n_baskets = 5,
+       n = c(17,15,18,12,23), mu_treat = rep(0.2, 5), sd = 1, scenario_code = "P1"),
+  list(name = "P2: low heterogeneity, effect size = 0.2",      n_baskets = 5,
+       n = c(17,15,18,12,23), mu_treat = rep(0.2, 5), sd = 1, scenario_code = "P2"),
+  list(name = "P3: moderate heterogeneity, effect size = 0.2", n_baskets = 5,
+       n = c(17,15,18,12,23), mu_treat = rep(0.2, 5), sd = 1, scenario_code = "P3")
+)
+```
+
+
+```{r run-simulations}
+set.seed(2025)
+n_sim_real <- 500
+
+# FIX: run_simulation() ora restituisce list($decisions, $tau_df).
+# run_scenarios() estrae entrambi e li conserva separatamente.
+run_scenarios <- function(scenarios) {
+  map(scenarios, function(sc) {
+    sim <- run_simulation(
+      n_sim     = n_sim_real,
+      n_baskets = sc$n_baskets,
+      n         = sc$n,
+      mu_treat  = sc$mu_treat,
+      sd        = sc$sd,
+      scenario  = sc$scenario_code
+    )
+    list(
+      scenario    = sc$name,
+      performance = evaluate_performance(sim$decisions),  # FIX: sim$decisions
+      tau_df      = sim$tau_df                            # FIX: salva tau_df
+    )
+  })
+}
+
+results_08 <- run_scenarios(scenarios_effect08)
+results_05 <- run_scenarios(scenarios_effect05)
+results_02 <- run_scenarios(scenarios_effect02)
+```
+```{r summary-tables}
+make_summary_table <- function(results) {
+  map_dfr(results, function(x) {
+    x$performance %>%
+      mutate(scenario = x$scenario)
+  })
+}
+
+summary_table_08 <- make_summary_table(results_08)
+summary_table_05 <- make_summary_table(results_05)
+summary_table_02 <- make_summary_table(results_02)
+```
+```{r tau-credible-intervals}
+# FIX: raccoglie tutti i tau_df dei tre panel in un unico dataframe,
+# poi stampa il CI al 95% di tau e I² per scenario e effect size.
+
+collect_tau <- function(results, effect_label) {
+  map_dfr(results, ~ .x$tau_df) |>
+    mutate(effect_size = effect_label)
+}
+
+tau_all <- bind_rows(
+  collect_tau(results_08, "0.8"),
+  collect_tau(results_05, "0.5"),
+  collect_tau(results_02, "0.2")
+)
+
+# Tabella riassuntiva: tau e I² per scenario x effect size
+tau_summary_table <- tau_all |>
+  group_by(scenario, effect_size) |>
+  summarise(
+    tau_mean   = mean(tau),
+    tau_lower  = quantile(tau, 0.025),
+    tau_upper  = quantile(tau, 0.975),
+    I2_mean    = mean(I2) * 100,
+    I2_lower   = quantile(I2, 0.025) * 100,
+    I2_upper   = quantile(I2, 0.975) * 100,
+    .groups    = "drop"
+  ) |>
+  mutate(
+    `tau [95% CI]` = sprintf("%.3f [%.3f – %.3f]", tau_mean, tau_lower, tau_upper),
+    `I2 [95% CI]`  = sprintf("%.1f%% [%.1f%% – %.1f%%]", I2_mean, I2_lower, I2_upper)
+  ) |>
+  select(scenario, effect_size, `tau [95% CI]`, `I2 [95% CI]`)
+
+knitr::kable(
+  tau_summary_table,
+  caption = "Posterior τ and I² (mean and 95% credible interval) by scenario and effect size"
+)
+```
+
+
+```{r tau-posterior-plot}
+# FIX: grafico della distribuzione posteriore di tau per scenario,
+# separato per effect size tramite facet.
+
+ggplot(tau_all, aes(x = tau, fill = scenario, color = scenario)) +
+  geom_density(alpha = 0.35, linewidth = 0.8) +
+  geom_vline(
+    data = tau_all |>
+      group_by(scenario, effect_size) |>
+      summarise(tau_mean = mean(tau), .groups = "drop"),
+    aes(xintercept = tau_mean, color = scenario),
+    linetype = "dashed", linewidth = 0.7
+  ) +
+  facet_wrap(~ effect_size, labeller = labeller(
+    effect_size = \(x) paste0("Effect size = ", x)
+  )) +
+  scale_x_continuous(limits = c(0, NA)) +
+  labs(
+    title    = "Posterior distribution of τ by scenario and effect size",
+    subtitle = "Dashed lines = posterior mean",
+    x        = "τ (between-basket SD)",
+    y        = "Density",
+    fill     = "Scenario",
+    color    = "Scenario"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "bottom")
+```
+
+
+```{r plot-power-by-basket}
+plot_power_basket <- function(summary_table) {
+  summary_table %>%
+    filter(!is.nan(power)) %>%
+    ggplot(aes(x = basket, y = power, color = scenario, group = scenario)) +
+    geom_line(linewidth = 1) +
+    geom_point(size = 3) +
+    scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
+    scale_x_continuous(breaks = 1:5) +
+    labs(title = "Power by Basket", x = "Basket", y = "Power") +
+    theme_minimal() +
+    theme(legend.position = "bottom")
+}
+
+p1_basket_08 <- plot_power_basket(summary_table_08)
+p1_basket_05 <- plot_power_basket(summary_table_05)
+p1_basket_02 <- plot_power_basket(summary_table_02)
+
+(p1_basket_08 / p1_basket_05 / p1_basket_02) +
+  plot_annotation(
+    title    = "Basket Trial Results",
+    subtitle = sprintf("n_sim = %d", n_sim_real)
+  )
+```
+```{r power-curves}
+effect_1 <- rep(0.8, 5)
+effect_2 <- rep(0.5, 5)
+effect_3 <- rep(0.2, 5)
+
+# FIX: find_power_curve() ora restituisce list($power_curve, $tau_df).
+# compute_power_curves() estrae solo $power_curve per il plot.
+compute_power_curves <- function(scenario_code) {
+  bind_rows(
+    find_power_curve(mu_treat = effect_1, scenario_code = scenario_code)$power_curve,
+    find_power_curve(mu_treat = effect_2, scenario_code = scenario_code)$power_curve,
+    find_power_curve(mu_treat = effect_3, scenario_code = scenario_code)$power_curve
+  )
+}
+
+power_P1 <- compute_power_curves("P1")
+power_P2 <- compute_power_curves("P2")
+power_P3 <- compute_power_curves("P3")
+
+target_power <- 0.8
+
+plot_power_curve <- function(power_data, heterogeneity_label) {
+  ggplot(power_data, aes(x = n, y = power, color = factor(effect_size))) +
+    geom_line(linewidth = 1.2) +
+    geom_point(size = 3) +
+    facet_grid(~ scenario) +
+    geom_hline(yintercept = target_power, linetype = "dashed", color = "black") +
+    scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+    labs(
+      title = paste("Power Curve stratified for different effect sizes",
+                    sprintf("(%s heterogeneity)", heterogeneity_label)),
+      x     = "Sample Size per Basket",
+      y     = "Power",
+      color = "Effect size"
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(legend.position = "bottom")
+}
+
+plot_power_curve(power_P1, "high")
+plot_power_curve(power_P2, "low")
+plot_power_curve(power_P3, "moderate")
+```
+```{r plot-metrics}
+plot_metric_basket <- function(summary_table, metric, y_label) {
+  summary_table %>%
+    ggplot(aes(x = basket, y = !!sym(metric), color = scenario, group = scenario)) +
+    geom_line(linewidth = 1) +
+    geom_point(size = 3) +
+    scale_x_continuous(breaks = 1:5) +
+    labs(title = paste(y_label, "by Basket"), x = "Basket", y = y_label) +
+    theme_minimal() +
+    theme(legend.position = "bottom")
+}
+
+# Power
+p_power_08 <- plot_metric_basket(summary_table_08, "power", "Power")
+p_power_05 <- plot_metric_basket(summary_table_05, "power", "Power")
+p_power_02 <- plot_metric_basket(summary_table_02, "power", "Power")
+
+# MAPE
+p_mape_08 <- plot_metric_basket(summary_table_08, "MAPE", "MAPE")
+p_mape_05 <- plot_metric_basket(summary_table_05, "MAPE", "MAPE")
+p_mape_02 <- plot_metric_basket(summary_table_02, "MAPE", "MAPE")
+
+# Mean CI Width
+p_ci_08 <- plot_metric_basket(summary_table_08, "mean_ci_width", "Mean CI Width")
+p_ci_05 <- plot_metric_basket(summary_table_05, "mean_ci_width", "Mean CI Width")
+p_ci_02 <- plot_metric_basket(summary_table_02, "mean_ci_width", "Mean CI Width")
+
+(p_power_08 / p_power_05 / p_power_02) + plot_annotation(title = "Power by Basket – Different Effect Sizes")
+(p_mape_08  / p_mape_05  / p_mape_02)  + plot_annotation(title = "MAPE by Basket – Different Effect Sizes")
+(p_ci_08    / p_ci_05    / p_ci_02)    + plot_annotation(title = "Mean CI Width by Basket – Different Effect Sizes")
+```

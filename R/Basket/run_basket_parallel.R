@@ -28,7 +28,7 @@ cat("[BASKET] Telegram OK\n"); flush.console()
 # ===========================
 # Source basket functions
 # ===========================
-source(file.path(script_dir, "basket_functions.R"))
+source(file.path(script_dir, "updated_scripts", "basket_functions.R"))
 cat("[BASKET] Funzioni caricate\n"); flush.console()
 
 # ===========================
@@ -101,10 +101,16 @@ run_simulation_par <- function(n_sim, n_baskets, n, mu_treat, sd, scenario) {
     fit <- fit_basket_model(data,
       heterogeneity = switch(scenario, P1 = "high", P2 = "low", P3 = "moderate"),
       seed = 1000 + s)
-    extract_decisions(fit, mu_treat, mu_control = 0)
+    list(
+      decisions = extract_decisions(fit, mu_treat, mu_control = 0),
+      tau_df = extract_tau_draws(fit, scenario, sim_id = s)
+    )
   }, future.seed = 123L,
      future.packages = c("brms", "posterior", "purrr", "dplyr", "tibble"))
-  bind_rows(results, .id = "sim")
+  list(
+    decisions = bind_rows(purrr::map(results, "decisions"), .id = "sim"),
+    tau_df = bind_rows(purrr::map(results, "tau_df"))
+  )
 }
 
 run_simulation_fdr_par <- function(n_sim, n_baskets, n, mu_treat,
@@ -117,10 +123,16 @@ run_simulation_fdr_par <- function(n_sim, n_baskets, n, mu_treat,
     fit <- fit_basket_model(data,
       heterogeneity = switch(scenario, P1 = "high", P2 = "low", P3 = "moderate"),
       seed = 1000 + s)
-    extract_decisions_fdr(fit, mu_treat, mu_control = mu_control)
+    list(
+      decisions = extract_decisions_fdr(fit, mu_treat, mu_control = mu_control),
+      tau_df = extract_tau_draws(fit, scenario, sim_id = s)
+    )
   }, future.seed = 123L,
      future.packages = c("brms", "posterior", "purrr", "dplyr", "tibble"))
-  bind_rows(results, .id = "sim")
+  list(
+    decisions = bind_rows(purrr::map(results, "decisions"), .id = "sim"),
+    tau_df = bind_rows(purrr::map(results, "tau_df"))
+  )
 }
 
 ##############################################################################
@@ -135,42 +147,55 @@ bot$sendMessage(chat_id = chat_id,
 power_start <- Sys.time()
 
 # --- Fixed-n scenarios (3 effects x 3 heterogeneity = 9) ---
-if (file.exists(file.path(csv_dir, "basket_power_fixed_n.csv"))) {
+power_fixed_files <- c(
+  file.path(csv_dir, "basket_power_fixed_n.csv"),
+  file.path(csv_dir, "basket_power_fixed_n_tau.csv")
+)
+if (all(file.exists(power_fixed_files))) {
   cat("[BASKET] Power fixed-n gia' esistente, salto\n"); flush.console()
   bot$sendMessage(chat_id = chat_id, text = "[BASKET] Power fixed-n gia' fatto, salto")
 } else {
-scenarios_power <- list(
-  list(name = "P1_effect08", n_baskets = 5, n = c(17,15,18,12,23),
-       mu_treat = rep(0.8, 5), sd = 1, sc = "P1"),
-  list(name = "P2_effect08", n_baskets = 5, n = c(17,15,18,12,23),
-       mu_treat = rep(0.8, 5), sd = 1, sc = "P2"),
-  list(name = "P3_effect08", n_baskets = 5, n = c(17,15,18,12,23),
-       mu_treat = rep(0.8, 5), sd = 1, sc = "P3"),
-  list(name = "P1_effect05", n_baskets = 5, n = c(17,15,18,12,23),
-       mu_treat = rep(0.5, 5), sd = 1, sc = "P1"),
-  list(name = "P2_effect05", n_baskets = 5, n = c(17,15,18,12,23),
-       mu_treat = rep(0.5, 5), sd = 1, sc = "P2"),
-  list(name = "P3_effect05", n_baskets = 5, n = c(17,15,18,12,23),
-       mu_treat = rep(0.5, 5), sd = 1, sc = "P3"),
-  list(name = "P1_effect02", n_baskets = 5, n = c(17,15,18,12,23),
-       mu_treat = rep(0.2, 5), sd = 1, sc = "P1"),
-  list(name = "P2_effect02", n_baskets = 5, n = c(17,15,18,12,23),
-       mu_treat = rep(0.2, 5), sd = 1, sc = "P2"),
-  list(name = "P3_effect02", n_baskets = 5, n = c(17,15,18,12,23),
-       mu_treat = rep(0.2, 5), sd = 1, sc = "P3")
-)
+  scenarios_power <- list(
+    list(name = "P1_effect08", n_baskets = 5, n = c(17,15,18,12,23),
+         mu_treat = rep(0.8, 5), sd = 1, sc = "P1"),
+    list(name = "P2_effect08", n_baskets = 5, n = c(17,15,18,12,23),
+         mu_treat = rep(0.8, 5), sd = 1, sc = "P2"),
+    list(name = "P3_effect08", n_baskets = 5, n = c(17,15,18,12,23),
+         mu_treat = rep(0.8, 5), sd = 1, sc = "P3"),
+    list(name = "P1_effect05", n_baskets = 5, n = c(17,15,18,12,23),
+         mu_treat = rep(0.5, 5), sd = 1, sc = "P1"),
+    list(name = "P2_effect05", n_baskets = 5, n = c(17,15,18,12,23),
+         mu_treat = rep(0.5, 5), sd = 1, sc = "P2"),
+    list(name = "P3_effect05", n_baskets = 5, n = c(17,15,18,12,23),
+         mu_treat = rep(0.5, 5), sd = 1, sc = "P3"),
+    list(name = "P1_effect02", n_baskets = 5, n = c(17,15,18,12,23),
+         mu_treat = rep(0.2, 5), sd = 1, sc = "P1"),
+    list(name = "P2_effect02", n_baskets = 5, n = c(17,15,18,12,23),
+         mu_treat = rep(0.2, 5), sd = 1, sc = "P2"),
+    list(name = "P3_effect02", n_baskets = 5, n = c(17,15,18,12,23),
+         mu_treat = rep(0.2, 5), sd = 1, sc = "P3")
+  )
 
-power_fixed <- map_dfr(scenarios_power, function(s) {
-  bot$sendMessage(chat_id = chat_id,
-    text = paste("[BASKET] Power:", s$name, "-", format(Sys.time(), "%H:%M:%S")))
-  sim  <- run_simulation_par(n_sim, s$n_baskets, s$n, s$mu_treat, s$sd, s$sc)
-  perf <- evaluate_performance(sim)
-  perf %>% mutate(scenario = s$name, effect_size = s$mu_treat[1], heterogeneity = s$sc)
-})
+  power_fixed_results <- map(scenarios_power, function(s) {
+    bot$sendMessage(chat_id = chat_id,
+      text = paste("[BASKET] Power:", s$name, "-", format(Sys.time(), "%H:%M:%S")))
+    sim  <- run_simulation_par(n_sim, s$n_baskets, s$n, s$mu_treat, s$sd, s$sc)
+    perf <- evaluate_performance(sim$decisions)
+    tau  <- summarise_tau(sim$tau_df) %>%
+      rename(prior_scenario = scenario) %>%
+      mutate(scenario = s$name, effect_size = s$mu_treat[1], heterogeneity = s$sc)
+    list(
+      perf = perf %>% mutate(scenario = s$name, effect_size = s$mu_treat[1], heterogeneity = s$sc),
+      tau = tau
+    )
+  })
+  power_fixed <- bind_rows(map(power_fixed_results, "perf"))
+  power_fixed_tau <- bind_rows(map(power_fixed_results, "tau"))
 
-write_csv(power_fixed, file.path(csv_dir, "basket_power_fixed_n.csv"))
-bot$sendMessage(chat_id = chat_id, text = "[BASKET] Power fixed-n salvato")
-restart_workers()
+  write_csv(power_fixed, file.path(csv_dir, "basket_power_fixed_n.csv"))
+  write_csv(power_fixed_tau, file.path(csv_dir, "basket_power_fixed_n_tau.csv"))
+  bot$sendMessage(chat_id = chat_id, text = "[BASKET] Power fixed-n salvato")
+  restart_workers()
 } # end if !file.exists
 
 # --- Power curves (3 heterogeneity x 3 effects x n_grid) ---
@@ -180,29 +205,43 @@ sc_labels  <- c("P1 - High heterogeneity",
                  "P2 - Low heterogeneity",
                  "P3 - Moderate heterogeneity")
 
-if (file.exists(file.path(csv_dir, "basket_power_curves.csv"))) {
+power_curve_files <- c(
+  file.path(csv_dir, "basket_power_curves.csv"),
+  file.path(csv_dir, "basket_power_curves_tau.csv")
+)
+if (all(file.exists(power_curve_files))) {
   cat("[BASKET] Power curves gia' esistente, salto\n"); flush.console()
   bot$sendMessage(chat_id = chat_id, text = "[BASKET] Power curves gia' fatto, salto")
 } else {
-power_curves_list <- list()
-for (i in seq_along(sc_codes)) {
-  for (eff in effects) {
-    bot$sendMessage(chat_id = chat_id,
-      text = paste("[BASKET] Power curve:", sc_codes[i],
-                   "effect =", eff[1], "-", format(Sys.time(), "%H:%M:%S")))
-    chunk <- map_dfr(n_grid, function(n_val) {
-      sim   <- run_simulation_par(n_sim, 5, n_val, eff, 1, sc_codes[i])
-      power <- evaluate_performance(sim) %>% pull(power) %>% mean(na.rm = TRUE)
-      tibble(scenario = sc_labels[i], n = n_val,
-             power = power, effect_size = eff[1])
-    })
-    power_curves_list <- c(power_curves_list, list(chunk))
-    restart_workers()
+  power_curves_list <- list()
+  power_curves_tau_list <- list()
+  for (i in seq_along(sc_codes)) {
+    for (eff in effects) {
+      bot$sendMessage(chat_id = chat_id,
+        text = paste("[BASKET] Power curve:", sc_codes[i],
+                     "effect =", eff[1], "-", format(Sys.time(), "%H:%M:%S")))
+      chunk <- map(n_grid, function(n_val) {
+        sim   <- run_simulation_par(n_sim, 5, n_val, eff, 1, sc_codes[i])
+        power <- evaluate_performance(sim$decisions) %>% pull(power) %>% mean(na.rm = TRUE)
+        tau   <- summarise_tau(sim$tau_df) %>%
+          rename(prior_scenario = scenario) %>%
+          mutate(scenario = sc_labels[i], n = n_val, effect_size = eff[1])
+        list(
+          power_row = tibble(scenario = sc_labels[i], n = n_val,
+                             power = power, effect_size = eff[1]),
+          tau_row = tau
+        )
+      })
+      power_curves_list <- c(power_curves_list, list(bind_rows(map(chunk, "power_row"))))
+      power_curves_tau_list <- c(power_curves_tau_list, list(bind_rows(map(chunk, "tau_row"))))
+      restart_workers()
+    }
   }
-}
-power_curves <- bind_rows(power_curves_list)
+  power_curves <- bind_rows(power_curves_list)
+  power_curves_tau <- bind_rows(power_curves_tau_list)
 
-write_csv(power_curves, file.path(csv_dir, "basket_power_curves.csv"))
+  write_csv(power_curves, file.path(csv_dir, "basket_power_curves.csv"))
+  write_csv(power_curves_tau, file.path(csv_dir, "basket_power_curves_tau.csv"))
 } # end if !file.exists
 
 power_end <- Sys.time()
@@ -223,36 +262,56 @@ bot$sendMessage(chat_id = chat_id,
 fdr_start <- Sys.time()
 
 # --- Fixed-n FDR scenarios (3 heterogeneity under H0) ---
-if (file.exists(file.path(csv_dir, "basket_fdr_fixed_n.csv"))) {
+fdr_fixed_files <- c(
+  file.path(csv_dir, "basket_fdr_fixed_n.csv"),
+  file.path(csv_dir, "basket_fdr_fixed_n_estimation.csv"),
+  file.path(csv_dir, "basket_fdr_fixed_n_tau.csv")
+)
+if (all(file.exists(fdr_fixed_files))) {
   cat("[BASKET] FDR fixed-n gia' esistente, salto\n"); flush.console()
   bot$sendMessage(chat_id = chat_id, text = "[BASKET] FDR fixed-n gia' fatto, salto")
 } else {
-scenarios_fdr <- list(
-  list(name = "P1_null", n_baskets = 5, n = c(17,15,18,12,23),
-       mu_treat = rep(0.8, 5), mu_control = 0.8, sd = 1, sc = "P1"),
-  list(name = "P2_null", n_baskets = 5, n = c(17,15,18,12,23),
-       mu_treat = rep(0.8, 5), mu_control = 0.8, sd = 1, sc = "P2"),
-  list(name = "P3_null", n_baskets = 5, n = c(17,15,18,12,23),
-       mu_treat = rep(0.8, 5), mu_control = 0.8, sd = 1, sc = "P3")
-)
-
-fdr_fixed <- map_dfr(scenarios_fdr, function(s) {
-  bot$sendMessage(chat_id = chat_id,
-    text = paste("[BASKET] FDR:", s$name, "-", format(Sys.time(), "%H:%M:%S")))
-  sim  <- run_simulation_fdr_par(n_sim, s$n_baskets, s$n,
-                                  s$mu_treat, s$mu_control, s$sd, s$sc)
-  perf <- evaluate_performance_fdr(sim)
-  # perf is now a list with $error_rates and $estimation
-  tibble(
-    scenario = s$name,
-    FWER = perf$error_rates$FWER,
-    FDR  = perf$error_rates$FDR
+  scenarios_fdr <- list(
+    list(name = "P1_null", n_baskets = 5, n = c(17,15,18,12,23),
+         mu_treat = rep(0.8, 5), mu_control = 0.8, sd = 1, sc = "P1"),
+    list(name = "P2_null", n_baskets = 5, n = c(17,15,18,12,23),
+         mu_treat = rep(0.8, 5), mu_control = 0.8, sd = 1, sc = "P2"),
+    list(name = "P3_null", n_baskets = 5, n = c(17,15,18,12,23),
+         mu_treat = rep(0.8, 5), mu_control = 0.8, sd = 1, sc = "P3")
   )
-})
 
-write_csv(fdr_fixed, file.path(csv_dir, "basket_fdr_fixed_n.csv"))
-bot$sendMessage(chat_id = chat_id, text = "[BASKET] FDR fixed-n salvato")
-restart_workers()
+  fdr_fixed_results <- map(scenarios_fdr, function(s) {
+    bot$sendMessage(chat_id = chat_id,
+      text = paste("[BASKET] FDR:", s$name, "-", format(Sys.time(), "%H:%M:%S")))
+    sim  <- run_simulation_fdr_par(n_sim, s$n_baskets, s$n,
+                                    s$mu_treat, s$mu_control, s$sd, s$sc)
+    perf <- evaluate_performance_fdr(sim$decisions)
+    tau  <- summarise_tau(sim$tau_df) %>%
+      rename(prior_scenario = scenario) %>%
+      mutate(scenario = s$name, effect_size = s$mu_treat[1] - s$mu_control, heterogeneity = s$sc)
+    list(
+      error = tibble(
+        scenario = s$name,
+        FWER = perf$error_rates$FWER,
+        FDR  = perf$error_rates$FDR
+      ),
+      estimation = perf$estimation %>% mutate(
+        scenario = s$name,
+        effect_size = s$mu_treat[1] - s$mu_control,
+        heterogeneity = s$sc
+      ),
+      tau = tau
+    )
+  })
+  fdr_fixed <- bind_rows(map(fdr_fixed_results, "error"))
+  fdr_fixed_estimation <- bind_rows(map(fdr_fixed_results, "estimation"))
+  fdr_fixed_tau <- bind_rows(map(fdr_fixed_results, "tau"))
+
+  write_csv(fdr_fixed, file.path(csv_dir, "basket_fdr_fixed_n.csv"))
+  write_csv(fdr_fixed_estimation, file.path(csv_dir, "basket_fdr_fixed_n_estimation.csv"))
+  write_csv(fdr_fixed_tau, file.path(csv_dir, "basket_fdr_fixed_n_tau.csv"))
+  bot$sendMessage(chat_id = chat_id, text = "[BASKET] FDR fixed-n salvato")
+  restart_workers()
 } # end if !file.exists
 
 # --- FDR error curves (3 heterogeneity x n_grid) ---
@@ -262,22 +321,21 @@ if (file.exists(file.path(csv_dir, "basket_fdr_curves.csv"))) {
   cat("[BASKET] FDR curves gia' esistente, salto\n"); flush.console()
   bot$sendMessage(chat_id = chat_id, text = "[BASKET] FDR curves gia' fatto, salto")
 } else {
-fdr_curves_list <- list()
-for (sc in sc_codes) {
-  bot$sendMessage(chat_id = chat_id,
-    text = paste("[BASKET] FDR curve:", sc, "-", format(Sys.time(), "%H:%M:%S")))
-  chunk <- map_dfr(n_grid, function(n_val) {
-    sim  <- run_simulation_fdr_par(n_sim, 5, rep(n_val, 5),
-                                    no_effect, 0.8, 1, sc)
-    perf <- evaluate_performance_fdr(sim)
-    tibble(scenario = sc, n = n_val, FDR = perf$error_rates$FDR, FWER = perf$error_rates$FWER)
-  })
-  fdr_curves_list <- c(fdr_curves_list, list(chunk))
-  restart_workers()
-}
-fdr_curves <- bind_rows(fdr_curves_list)
-
-write_csv(fdr_curves, file.path(csv_dir, "basket_fdr_curves.csv"))
+  fdr_curves_list <- list()
+  for (sc in sc_codes) {
+    bot$sendMessage(chat_id = chat_id,
+      text = paste("[BASKET] FDR curve:", sc, "-", format(Sys.time(), "%H:%M:%S")))
+    chunk <- map_dfr(n_grid, function(n_val) {
+      sim  <- run_simulation_fdr_par(n_sim, 5, rep(n_val, 5),
+                                      no_effect, 0.8, 1, sc)
+      perf <- evaluate_performance_fdr(sim$decisions)
+      tibble(scenario = sc, n = n_val, FDR = perf$error_rates$FDR, FWER = perf$error_rates$FWER)
+    })
+    fdr_curves_list <- c(fdr_curves_list, list(chunk))
+    restart_workers()
+  }
+  fdr_curves <- bind_rows(fdr_curves_list)
+  write_csv(fdr_curves, file.path(csv_dir, "basket_fdr_curves.csv"))
 } # end if !file.exists
 
 fdr_end <- Sys.time()

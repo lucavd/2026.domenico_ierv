@@ -1,0 +1,209 @@
+---
+title: "Basket Trial FDR and FWER simulations"
+author: "Angelo Capasso"
+format: html
+editor: visual
+---
+
+```{r setup}
+source("basket_functions.R")
+```
+
+
+```{r options}
+invisible(lapply(pkgs, load_or_install))
+options(mc.cores = parallel::detectCores())
+```
+```{r define-scenarios-fdr}
+scenarios_effect_0 <- list(
+  list(name = "P1: high heterogeneity, effect size = 0",     n_baskets = 5,
+       n = c(17,15,18,12,23), mu_treat = rep(0.8, 5),
+       mu_control = 0.8, sd = 1, scenario_code = "P1"),
+  list(name = "P2: low heterogeneity, effect size = 0",      n_baskets = 5,
+       n = c(17,15,18,12,23), mu_treat = rep(0.8, 5),
+       mu_control = 0.8, sd = 1, scenario_code = "P2"),
+  list(name = "P3: moderate heterogeneity, effect size = 0", n_baskets = 5,
+       n = c(17,15,18,12,23), mu_treat = rep(0.8, 5),
+       mu_control = 0.8, sd = 1, scenario_code = "P3")
+)
+```
+
+
+```{r run-simulations-fdr}
+set.seed(123)
+n_sim_real <- 500
+
+# FIX: sostituito run_simulation_fdr_umb() (umbrella) con run_simulation_fdr()
+# (basket). Ora restituisce list($decisions, $tau_df) — accesso corretto a entrambi.
+results_0 <- map(scenarios_effect_0, function(sc) {
+  sim <- run_simulation_fdr(
+    n_sim      = n_sim_real,
+    n_baskets  = sc$n_baskets,
+    n          = sc$n,
+    mu_treat   = sc$mu_treat,
+    mu_control = sc$mu_control,
+    sd         = sc$sd,
+    scenario   = sc$scenario_code
+  )
+  list(
+    scenario    = sc$name,
+    performance = evaluate_performance_fdr(sim$decisions),  # FIX: sim$decisions
+    tau_df      = sim$tau_df                                # FIX: salva tau_df
+  )
+})
+```
+
+
+```{r summary-table-fdr}
+# FIX: evaluate_performance_fdr() restituisce list($error_rates, $estimation)
+# — accesso esplicito a entrambi i componenti
+summary_table_0_error <- map_dfr(results_0,
+  ~ .x$performance$error_rates |> mutate(scenario = .x$scenario))
+
+summary_table_0_estim <- map_dfr(results_0,
+  ~ .x$performance$estimation  |> mutate(scenario = .x$scenario))
+```
+```{r tau-credible-intervals-fdr}
+# FIX: raccoglie i tau_df dello scenario null (effect = 0) e stampa
+# CI al 95% di tau e I² per scenario — utile per verificare che il prior
+# non collassi su zero in assenza di segnale.
+tau_fdr <- map_dfr(results_0, ~ .x$tau_df)
+
+tau_summary_fdr <- tau_fdr |>
+  group_by(scenario) |>
+  summarise(
+    tau_mean  = mean(tau),
+    tau_lower = quantile(tau, 0.025),
+    tau_upper = quantile(tau, 0.975),
+    I2_mean   = mean(I2) * 100,
+    I2_lower  = quantile(I2, 0.025) * 100,
+    I2_upper  = quantile(I2, 0.975) * 100,
+    .groups   = "drop"
+  ) |>
+  mutate(
+    `tau [95% CI]` = sprintf("%.3f [%.3f – %.3f]", tau_mean, tau_lower, tau_upper),
+    `I2 [95% CI]`  = sprintf("%.1f%% [%.1f%% – %.1f%%]", I2_mean, I2_lower, I2_upper)
+  ) |>
+  select(scenario, `tau [95% CI]`, `I2 [95% CI]`)
+
+knitr::kable(
+  tau_summary_fdr,
+  caption = "Posterior τ and I² under null scenario (effect size = 0) — mean and 95% CI"
+)
+```
+
+
+```{r plot-fwer-fdr}
+p_fwer <- summary_table_0_error %>%
+  ggplot(aes(x = scenario, y = FWER, fill = scenario)) +
+  geom_col(alpha = 0.8) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+  labs(title = "FWER by Scenario", x = "Scenario", y = "FWER") +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none")
+
+p_fdr <- summary_table_0_error %>%
+  ggplot(aes(x = scenario, y = FDR, fill = scenario)) +
+  geom_col(alpha = 0.8) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+  labs(title = "FDR by Scenario", x = "Scenario", y = "FDR") +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none")
+
+# FIX: aggiunto () attorno a p_fwer / p_fdr per applicare
+# plot_annotation() all'intera espressione patchwork
+(p_fwer / p_fdr) +
+  plot_annotation(
+    title    = "FWER and FDR in Basket Trial",
+    subtitle = sprintf("n_sim = %d", n_sim_real)
+  )
+```
+
+
+```{r error-curves}
+set.seed(2026)
+no_effect <- rep(0.8, 5)
+
+# FIX: find_error_curve_fdr() usa mu_control = 0.8 per definire
+# lo scenario null (true effect = mu_treat - mu_control = 0)
+error_P1 <- find_error_curve_fdr(
+  mu_treat = no_effect, mu_control = 0.8, scenario_code = "P1")
+error_P2 <- find_error_curve_fdr(
+  mu_treat = no_effect, mu_control = 0.8, scenario_code = "P2")
+error_P3 <- find_error_curve_fdr(
+  mu_treat = no_effect, mu_control = 0.8, scenario_code = "P3")
+
+error_all <- bind_rows(error_P1, error_P2, error_P3)
+```
+```{r plot-error-curves}
+plot_error_curve <- function(error_data, metric = c("FDR", "FWER"),
+                             heterogeneity_label) {
+  metric <- match.arg(metric)
+  ggplot(error_data, aes(x = n, y = .data[[metric]], color = scenario)) +
+    geom_line(linewidth = 1.2) +
+    geom_point(size = 3) +
+    scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+    labs(
+      title = paste(metric, "Curve by Sample Size",
+                    sprintf("(%s heterogeneity)", heterogeneity_label)),
+      x     = "Sample Size per Basket",
+      y     = metric
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(legend.position = "bottom")
+}
+
+# FDR curves per scenario
+plot_error_curve(error_P1, "FDR",  "high")
+plot_error_curve(error_P2, "FDR",  "low")
+plot_error_curve(error_P3, "FDR",  "moderate")
+
+# FWER curves per scenario
+plot_error_curve(error_P1, "FWER", "high")
+plot_error_curve(error_P2, "FWER", "low")
+plot_error_curve(error_P3, "FWER", "moderate")
+
+# FIX: plot combinato FDR + FWER su tutti gli scenari insieme
+ggplot(error_all, aes(x = n, color = scenario)) +
+  geom_line(aes(y = FDR,  linetype = "FDR"),  linewidth = 1.1) +
+  geom_line(aes(y = FWER, linetype = "FWER"), linewidth = 1.1) +
+  facet_wrap(~ scenario) +
+  scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+  scale_linetype_manual(values = c(FDR = "solid", FWER = "dashed")) +
+  labs(
+    title    = "FDR and FWER curves by scenario (null effect)",
+    x        = "Sample Size per Basket",
+    y        = "Error rate",
+    linetype = "Metric"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "bottom")
+```
+
+
+```{r plot-estimation-metrics}
+# FIX: rinominata plot_metric_curve() in plot_metric_basket_fdr() per
+# evitare conflitti con funzioni omonime definite altrove nel progetto.
+# Usa "basket" come asse x (corretto per trial basket), non "arm".
+plot_metric_basket_fdr <- function(summary_table, metric, title_suffix) {
+  ggplot(summary_table,
+         aes(x = basket, y = .data[[metric]],
+             color = scenario, group = scenario)) +
+    geom_line(linewidth = 1.2) +
+    geom_point(size = 3) +
+    scale_x_continuous(breaks = 1:5) +
+    labs(
+      title = paste(title_suffix, "by Basket"),
+      x     = "Basket",
+      y     = title_suffix
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(legend.position = "bottom")
+}
+
+p_mape <- plot_metric_basket_fdr(summary_table_0_estim, "MAPE",          "MAPE")
+p_ci   <- plot_metric_basket_fdr(summary_table_0_estim, "mean_ci_width",  "Mean CI Width")
+
+(p_mape / p_ci) +
+  plot_annotation(title = "Estimation Metrics in Basket Trial – Null Scenario")
+```
